@@ -73,6 +73,62 @@
     color: #c084fc;
 }
 
+/* ─── Slot Machine Toggle ────────────────────────── */
+.slot-toggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 0 6px;
+}
+
+.slot-icon {
+    font-size: 0.85rem;
+}
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 32px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 18px;
+    transition: all 0.3s ease;
+}
+
+.toggle-slider::before {
+    content: '';
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    left: 2px;
+    bottom: 2px;
+    background: #6b7280;
+    border-radius: 50%;
+    transition: all 0.3s ease;
+}
+
+.toggle-switch input:checked+.toggle-slider {
+    background: rgba(168, 85, 247, 0.3);
+}
+
+.toggle-switch input:checked+.toggle-slider::before {
+    transform: translateX(14px);
+    background: #a855f7;
+    box-shadow: 0 0 6px rgba(168, 85, 247, 0.5);
+}
+
 /* ─── Loading ────────────────────────────────────── */
 .loading-state {
     flex: 1;
@@ -222,6 +278,135 @@
     color: #4b5563;
     text-align: center;
     padding: 4px 0;
+}
+
+/* ─── Wallet Card ────────────────────────────────── */
+.wallet-card {
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(6, 182, 212, 0.06)) !important;
+    border-color: rgba(16, 185, 129, 0.15) !important;
+}
+
+.wallet-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.wallet-main {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.wallet-remaining {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #10b981;
+    font-variant-numeric: tabular-nums;
+}
+
+.wallet-separator {
+    font-size: 1rem;
+    color: #374151;
+    font-weight: 300;
+}
+
+.wallet-total {
+    font-size: 0.9rem;
+    color: #6b7280;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.wallet-label {
+    font-size: 0.68rem;
+    color: #4b5563;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+    margin-top: -4px;
+}
+
+.credit-bar-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.credit-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #10b981, #06b6d4);
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
+}
+
+.wallet-spent-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.wallet-spent-label {
+    font-size: 0.72rem;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+.wallet-spent-value {
+    font-size: 0.72rem;
+    color: #f1f1f6;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ─── Credit Split Row ───────────────────────────── */
+.credit-split-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.unlimited-card {
+    border-color: rgba(16, 185, 129, 0.15) !important;
+    background: rgba(16, 185, 129, 0.04) !important;
+}
+
+.unlimited-card .hero-value {
+    color: #10b981;
+}
+
+.paid-card {
+    border-color: rgba(245, 158, 11, 0.15) !important;
+    background: rgba(245, 158, 11, 0.04) !important;
+}
+
+.paid-card .hero-value {
+    color: #f59e0b;
+}
+
+.plan-badge {
+    font-size: 0.58rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 100px;
+    margin-top: 6px;
+    display: inline-block;
+    letter-spacing: 0.5px;
+}
+
+.unlimited-badge {
+    background: rgba(16, 185, 129, 0.1);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.paid-badge {
+    background: rgba(245, 158, 11, 0.1);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 /* ─── Chart Card ─────────────────────────────────── */

@@ -39,7 +39,8 @@
         {
             "resources": [
                 "dashboard.css",
-                "lib/chart.min.js"
+                "lib/chart.min.js",
+                "sounds/slot.mp3"
             ],
             "matches": [
                 "*://*.freepik.com/*"

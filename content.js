@@ -22,6 +22,8 @@
     let isFetching = false;
     let dashboardRoot = null;
     let shadowRoot = null;
+    let slotSoundEnabled = false;
+    const SLOT_STORAGE_KEY = 'freepikSlotSoundEnabled';
 
     // ─── Create Toggle Button ─────────────────────────
     function createToggleButton() {
@@ -149,10 +151,34 @@
         showProgress(true, 0, 1);
 
         try {
-            // First page to get total
-            const firstRes = await fetch(`${API_BASE}?page=1&per_page=${PER_PAGE}`);
+            // Fetch wallet + limits in parallel with first history page
+            const [firstRes, walletRes, limitsRes] = await Promise.all([
+                fetch(`${API_BASE}?page=1&per_page=${PER_PAGE}`),
+                fetch('/pikaso/api/wallet').catch(() => null),
+                fetch('/pikaso/api/limits').catch(() => null),
+            ]);
+
             if (!firstRes.ok) throw new Error(`API returned ${firstRes.status}`);
             const firstData = await firstRes.json();
+
+            // Parse wallet data
+            let walletData = null;
+            if (walletRes && walletRes.ok) {
+                try { walletData = await walletRes.json(); } catch (e) { }
+            }
+
+            // Parse limits data — build cost lookup map
+            let limitsMap = {};
+            if (limitsRes && limitsRes.ok) {
+                try {
+                    const limitsData = await limitsRes.json();
+                    if (limitsData.limits) {
+                        Object.values(limitsData.limits).forEach(l => {
+                            limitsMap[l.key] = { cost: l.cost || 0, unlimited: !!l.unlimitedGenerations, title: l.title || l.key };
+                        });
+                    }
+                } catch (e) { }
+            }
 
             const apiTotal = firstData.meta.pagination.total;
             const lastPage = firstData.meta.pagination.last_page;
@@ -161,7 +187,7 @@
             processPage(firstData.data, allItems);
 
             // Show dashboard immediately with first page of data
-            let summary = aggregateData(allItems, apiTotal);
+            let summary = aggregateData(allItems, apiTotal, walletData, limitsMap);
             renderDashboard(summary);
             showProgress(true, 1, lastPage);
 
@@ -186,7 +212,7 @@
 
                 // Re-aggregate and re-render every 3 pages for smooth updates
                 if (p % 3 === 0 || p === lastPage) {
-                    summary = aggregateData(allItems, apiTotal);
+                    summary = aggregateData(allItems, apiTotal, walletData, limitsMap);
                     renderDashboard(summary);
                 }
                 showProgress(true, p, lastPage);
@@ -196,7 +222,7 @@
             }
 
             // Final render with complete data
-            summary = aggregateData(allItems, apiTotal);
+            summary = aggregateData(allItems, apiTotal, walletData, limitsMap);
             await setCachedData(summary);
             renderDashboard(summary);
             showProgress(false);
@@ -232,12 +258,13 @@
                 model,
                 provider,
                 status: item.creation?.status || 'unknown',
+                unlimited: item.creation?.metadata?.unlimited ?? null,
             });
         });
     }
 
     // ─── Aggregate data ───────────────────────────────
-    function aggregateData(items, apiTotal) {
+    function aggregateData(items, apiTotal, walletData, limitsMap) {
         const summary = {
             total: items.length,
             api_total: apiTotal,
@@ -251,7 +278,22 @@
             by_hour: {},
             by_date_hour: {},
             by_month: {},
+            // Credit tracking
+            wallet: walletData ? {
+                credits: walletData.credits || 0,
+                totalCredits: walletData.totalCredits || 0,
+                creditsSpend: walletData.creditsSpend || 0,
+            } : null,
+            limits_map: limitsMap || {},
+            unlimited_count: 0,
+            paid_count: 0,
+            unknown_plan_count: 0,
+            estimated_credits_by_model: {},
+            total_estimated_credits: 0,
         };
+
+        // Build a rough model-to-limits-key mapping
+        const modelCostLookup = buildModelCostLookup(limitsMap);
 
         items.forEach(item => {
             inc(summary.by_type, item.type);
@@ -259,6 +301,23 @@
             inc(summary.by_project, item.folder_name);
             inc(summary.by_model, item.model || 'unknown');
             if (item.provider) inc(summary.by_provider, item.provider);
+
+            // Credit split
+            if (item.unlimited === true) {
+                summary.unlimited_count++;
+            } else if (item.unlimited === false) {
+                summary.paid_count++;
+            } else {
+                summary.unknown_plan_count++;
+            }
+
+            // Estimate credit cost per model
+            const modelKey = item.model || 'unknown';
+            const cost = modelCostLookup[modelKey] || 0;
+            if (cost > 0) {
+                summary.estimated_credits_by_model[modelKey] = (summary.estimated_credits_by_model[modelKey] || 0) + cost;
+                summary.total_estimated_credits += cost;
+            }
 
             if (item.created_at) {
                 const date = item.created_at.substring(0, 10);
@@ -277,6 +336,42 @@
         });
 
         return summary;
+    }
+
+    // ─── Model-to-cost lookup builder ─────────────────
+    function buildModelCostLookup(limitsMap) {
+        // Maps model identifiers from history items to their credit costs
+        // The limits API uses keys like 'text-to-image-fast', but history uses model names like 'imagen-nano-banana-2'
+        const lookup = {};
+        const knownCosts = {
+            // Images
+            'imagen-nano-banana-2': 50, 'imagen-nano-banana-2-flash': 5, 'imagen-nano-banana': 50,
+            'nano-banana-pro': 50, 'seedream-4': 50, 'seedream-4-4k': 100, 'seedream-4-5': 50,
+            'flux-2': 10, 'flux-2-max': 50, 'flux-2-klein': 5,
+            'gpt-1-5-medium': 50, 'gpt-1-5-high': 100,
+            'imagen4-fast': 5, 'imagen4-ultra': 100,
+            'ultra': 100, 'grok': 50, 'qwen': 50, 'auto': 50,
+            'unknown-image': 50,
+            // Videos
+            'kling': 200, 'seedance': 200, 'minimax': 200,
+            'ltx2': 100, 'wan': 200, 'runway-gen4': 500,
+        };
+
+        // Use known costs, override with actual API data where possible
+        Object.assign(lookup, knownCosts);
+
+        // Try to match limits entries to model names
+        if (limitsMap) {
+            Object.entries(limitsMap).forEach(([key, info]) => {
+                // Some heuristic matching
+                if (key.includes('flux-dev')) lookup['flux-2'] = info.cost;
+                if (key.includes('flux-fast')) lookup['flux-2-klein'] = info.cost;
+                if (key.includes('kling-std')) lookup['kling'] = info.cost;
+                if (key.includes('runway')) lookup['runway-gen4'] = info.cost;
+            });
+        }
+
+        return lookup;
     }
 
     function inc(obj, key) {
@@ -328,6 +423,13 @@
           Freepik Analytics
         </div>
         <div class="panel-actions">
+          <div class="slot-toggle" title="Slot machine sound on Generate">
+            <span class="slot-icon">🎰</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="fpk-slot-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
           <button id="fpk-refresh" class="icon-btn" title="Refresh data">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
@@ -369,6 +471,46 @@
         </div>
 
         <div class="scraped-info" id="fpk-scraped-info"></div>
+
+        <!-- Wallet / Credit Balance -->
+        <div class="chart-card wallet-card" id="fpk-wallet-section">
+          <div class="chart-title">💰 Credit Balance</div>
+          <div class="wallet-stats">
+            <div class="wallet-main">
+              <span class="wallet-remaining" id="fpk-credits-remaining">—</span>
+              <span class="wallet-separator">/</span>
+              <span class="wallet-total" id="fpk-credits-total">—</span>
+            </div>
+            <div class="wallet-label">credits remaining</div>
+            <div class="credit-bar-track">
+              <div class="credit-bar-fill" id="fpk-credit-bar"></div>
+            </div>
+            <div class="wallet-spent-row">
+              <span class="wallet-spent-label">Spent:</span>
+              <span class="wallet-spent-value" id="fpk-credits-spent">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Unlimited vs Paid Split -->
+        <div class="credit-split-row">
+          <div class="hero-card unlimited-card">
+            <div class="hero-value" id="fpk-unlimited-count">0</div>
+            <div class="hero-label">Unlimited</div>
+            <div class="plan-badge unlimited-badge">∞ Plan</div>
+          </div>
+          <div class="hero-card paid-card">
+            <div class="hero-value" id="fpk-paid-count">0</div>
+            <div class="hero-label">Paid</div>
+            <div class="plan-badge paid-badge">💳 Credits</div>
+          </div>
+        </div>
+
+        <!-- Credits by Model -->
+        <div class="chart-card">
+          <div class="chart-title">📊 Estimated Credits by Model</div>
+          <div id="fpk-credits-model-list" class="model-list"></div>
+        </div>
 
         <!-- Daily Timeline -->
         <div class="chart-card">
@@ -421,6 +563,9 @@
         waitForChartJS(() => {
             renderHeroStats(data);
             renderScrapedInfo(data);
+            renderWalletCard(data);
+            renderCreditSplit(data);
+            renderCreditsModelList(data);
             renderDailyChart(data.by_date);
             renderHourlyChart(data.by_hour);
             renderTypeChart(data.by_type);
@@ -485,6 +630,67 @@
         const el = shadowRoot.querySelector('#fpk-scraped-info');
         const d = new Date(data.scraped_at);
         el.textContent = `Last updated: ${d.toLocaleDateString()} at ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    }
+
+    // ─── Wallet Card ──────────────────────────────────
+    function renderWalletCard(data) {
+        const section = shadowRoot.querySelector('#fpk-wallet-section');
+        if (!data.wallet) {
+            section.style.display = 'none';
+            return;
+        }
+        section.style.display = '';
+        const w = data.wallet;
+        const remainEl = shadowRoot.querySelector('#fpk-credits-remaining');
+        const totalEl = shadowRoot.querySelector('#fpk-credits-total');
+        const spentEl = shadowRoot.querySelector('#fpk-credits-spent');
+        const barEl = shadowRoot.querySelector('#fpk-credit-bar');
+
+        animateCount(remainEl, w.credits);
+        totalEl.textContent = w.totalCredits.toLocaleString();
+        spentEl.textContent = w.creditsSpend.toLocaleString();
+
+        const usedPct = w.totalCredits > 0 ? ((w.creditsSpend / w.totalCredits) * 100) : 0;
+        barEl.style.width = `${usedPct}%`;
+
+        // Color the bar based on usage
+        if (usedPct > 80) {
+            barEl.style.background = 'linear-gradient(90deg, #f59e0b, #f43f5e)';
+        } else if (usedPct > 50) {
+            barEl.style.background = 'linear-gradient(90deg, #a855f7, #f59e0b)';
+        } else {
+            barEl.style.background = 'linear-gradient(90deg, #10b981, #06b6d4)';
+        }
+    }
+
+    // ─── Credit Split (Unlimited vs Paid) ─────────────
+    function renderCreditSplit(data) {
+        animateCount(shadowRoot.querySelector('#fpk-unlimited-count'), data.unlimited_count);
+        animateCount(shadowRoot.querySelector('#fpk-paid-count'), data.paid_count);
+    }
+
+    // ─── Credits by Model List ────────────────────────
+    function renderCreditsModelList(data) {
+        const container = shadowRoot.querySelector('#fpk-credits-model-list');
+        const entries = Object.entries(data.estimated_credits_by_model || {}).sort((a, b) => b[1] - a[1]);
+
+        if (entries.length === 0) {
+            container.innerHTML = '<div style="color:#4b5563;font-size:0.75rem;text-align:center;padding:12px">No credit data available yet</div>';
+            return;
+        }
+
+        const maxVal = entries[0]?.[1] || 1;
+        container.innerHTML = entries.map(([name, credits], i) => {
+            const color = getColor(i);
+            const bw = ((credits / maxVal) * 100).toFixed(1);
+            const displayName = name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()).replace(/Unknown Image/g, 'Other / Unknown');
+            return `<div class="model-item">
+                <span class="model-dot" style="background:${color}"></span>
+                <span class="model-name">${displayName}</span>
+                <div class="model-bar-track"><div class="model-bar" style="width:${bw}%;background:${color}"></div></div>
+                <span class="model-count">${credits.toLocaleString()} <span class="model-pct">credits</span></span>
+            </div>`;
+        }).join('');
     }
 
     // ─── Chart Defaults ───────────────────────────────
@@ -709,9 +915,49 @@
         document.addEventListener('DOMContentLoaded', init);
     }
 
+    // ─── Slot Machine Sound ───────────────────────
+    function initSlotMachineSound() {
+        const soundUrl = chrome.runtime.getURL('sounds/slot.mp3');
+
+        // Load saved toggle state
+        chrome.storage.local.get([SLOT_STORAGE_KEY], (result) => {
+            slotSoundEnabled = result[SLOT_STORAGE_KEY] || false;
+            const toggle = shadowRoot?.querySelector('#fpk-slot-toggle');
+            if (toggle) toggle.checked = slotSoundEnabled;
+        });
+
+        // Listen for generate button clicks (capture phase)
+        document.addEventListener('click', function (e) {
+            if (!slotSoundEnabled) return;
+
+            const dataCyTarget = e.target.closest('[data-cy="generate-button"]');
+            const dataTourTarget = e.target.closest('[data-tour="generate-button"]');
+            const buttonTarget = e.target.closest('button');
+            const isGenerateText = buttonTarget && buttonTarget.innerText.toLowerCase().includes('generate');
+
+            if (dataCyTarget || dataTourTarget || isGenerateText) {
+                const audio = new Audio(soundUrl);
+                audio.volume = 0.5;
+                audio.play().catch(() => { });
+            }
+        }, true);
+    }
+
+    function bindSlotToggle() {
+        const toggle = shadowRoot?.querySelector('#fpk-slot-toggle');
+        if (toggle) {
+            toggle.addEventListener('change', (e) => {
+                slotSoundEnabled = e.target.checked;
+                chrome.storage.local.set({ [SLOT_STORAGE_KEY]: slotSoundEnabled });
+            });
+        }
+    }
+
     function init() {
         createToggleButton();
         createDashboardContainer();
+        initSlotMachineSound();
+        bindSlotToggle();
     }
 
 })();
