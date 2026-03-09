@@ -1,0 +1,145 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #0a0a10;
+    color: #f1f1f6;
+    -webkit-font-smoothing: antialiased;
+    width: 300px;
+}
+
+.popup {
+    padding: 18px;
+}
+
+/* Header */
+.popup-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.logo {
+    font-size: 1.2rem;
+}
+
+.title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #a855f7, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+/* Stats */
+.stats {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+}
+
+.stat-label {
+    font-size: 0.78rem;
+    color: #9ca3af;
+    font-weight: 500;
+}
+
+.stat-value {
+    font-size: 0.9rem;
+    font-weight: 800;
+    color: #f1f1f6;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat-value.purple {
+    color: #a855f7;
+}
+
+.stat-value.cyan {
+    color: #06b6d4;
+}
+
+.stat-value.rose {
+    color: #f43f5e;
+}
+
+.stat-divider {
+    height: 1px;
+    background: rgba(255, 255, 255, 0.04);
+    margin: 4px 0;
+}
+
+/* No Data */
+.no-data {
+    text-align: center;
+    padding: 20px 0;
+}
+
+.no-data-icon {
+    font-size: 2rem;
+    margin-bottom: 8px;
+}
+
+.no-data-text {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #9ca3af;
+    margin-bottom: 6px;
+}
+
+.no-data-hint {
+    font-size: 0.72rem;
+    color: #6b7280;
+    line-height: 1.5;
+}
+
+/* Footer */
+.popup-footer {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.last-updated {
+    font-size: 0.68rem;
+    color: #4b5563;
+    text-align: center;
+    margin-bottom: 10px;
+}
+
+.open-btn {
+    width: 100%;
+    padding: 10px;
+    border: none;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #a855f7, #6366f1);
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.open-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 16px rgba(168, 85, 247, 0.3);
+}

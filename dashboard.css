@@ -1,0 +1,432 @@
+/* ═══════════════════════════════════════════════════
+   FREEPIK ANALYTICS — Dashboard Panel CSS
+   Injected into Shadow DOM (isolated from host page)
+   ═══════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+/* ─── Panel Shell ────────────────────────────────── */
+.panel {
+    width: 100%;
+    height: 100vh;
+    background: #0a0a10;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #f1f1f6;
+    -webkit-font-smoothing: antialiased;
+    box-shadow: -8px 0 40px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+}
+
+/* ─── Header ─────────────────────────────────────── */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(13, 13, 20, 0.95);
+    flex-shrink: 0;
+}
+
+.panel-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #a855f7, #06b6d4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.panel-logo {
+    font-size: 1.1rem;
+    -webkit-text-fill-color: initial;
+}
+
+.panel-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.icon-btn {
+    width: 30px;
+    height: 30px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    color: #9ca3af;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.icon-btn:hover {
+    background: rgba(168, 85, 247, 0.12);
+    border-color: rgba(168, 85, 247, 0.3);
+    color: #c084fc;
+}
+
+/* ─── Loading ────────────────────────────────────── */
+.loading-state {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+}
+
+.spinner {
+    width: 36px;
+    height: 36px;
+    border: 3px solid rgba(168, 85, 247, 0.15);
+    border-top-color: #a855f7;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.status-text {
+    font-size: 0.82rem;
+    color: #6b7280;
+    font-weight: 500;
+}
+
+/* ─── Progress Bar ───────────────────────────────── */
+.progress-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 18px;
+    flex-shrink: 0;
+    transition: opacity 0.4s ease;
+}
+
+.progress-track {
+    flex: 1;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #a855f7, #06b6d4);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 8px rgba(168, 85, 247, 0.3);
+}
+
+.progress-text {
+    font-size: 0.68rem;
+    color: #6b7280;
+    font-weight: 500;
+    white-space: nowrap;
+    min-width: 70px;
+    text-align: right;
+}
+
+/* ─── Scrollable Content ─────────────────────────── */
+.panel-content {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.panel-content::-webkit-scrollbar {
+    width: 5px;
+}
+
+.panel-content::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.panel-content::-webkit-scrollbar-thumb {
+    background: rgba(168, 85, 247, 0.2);
+    border-radius: 10px;
+}
+
+.panel-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(168, 85, 247, 0.4);
+}
+
+/* ─── Hero Stats Row ─────────────────────────────── */
+.hero-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+}
+
+.hero-card {
+    text-align: center;
+    padding: 16px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+    transition: all 0.3s ease;
+}
+
+.hero-card:hover {
+    border-color: rgba(168, 85, 247, 0.2);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.hero-value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    line-height: 1;
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.hero-card.total .hero-value {
+    color: #a855f7;
+}
+
+.hero-card.images .hero-value {
+    color: #06b6d4;
+}
+
+.hero-card.videos .hero-value {
+    color: #f43f5e;
+}
+
+.hero-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* ─── Scraped Info ───────────────────────────────── */
+.scraped-info {
+    font-size: 0.7rem;
+    color: #4b5563;
+    text-align: center;
+    padding: 4px 0;
+}
+
+/* ─── Chart Card ─────────────────────────────────── */
+.chart-card {
+    background: rgba(16, 16, 28, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color 0.3s ease;
+}
+
+.chart-card:hover {
+    border-color: rgba(168, 85, 247, 0.15);
+}
+
+.chart-title {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #e5e7eb;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 100px;
+    background: rgba(168, 85, 247, 0.1);
+    color: #c084fc;
+    border: 1px solid rgba(168, 85, 247, 0.15);
+    margin-left: auto;
+}
+
+.chart-wrap {
+    height: 200px;
+    position: relative;
+}
+
+.chart-wrap.doughnut-wrap {
+    height: auto;
+    max-width: 220px;
+    margin: 0 auto;
+}
+
+/* ─── Model List ─────────────────────────────────── */
+.model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.model-list::-webkit-scrollbar {
+    width: 3px;
+}
+
+.model-list::-webkit-scrollbar-thumb {
+    background: rgba(168, 85, 247, 0.15);
+    border-radius: 10px;
+}
+
+.model-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    background: rgba(255, 255, 255, 0.015);
+    transition: all 0.2s ease;
+}
+
+.model-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(168, 85, 247, 0.15);
+}
+
+.model-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.model-name {
+    font-size: 0.76rem;
+    font-weight: 500;
+    color: #d1d5db;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.model-bar-track {
+    width: 70px;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 2px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.model-bar {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.model-count {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #c084fc;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.model-pct {
+    color: #4b5563;
+    font-weight: 400;
+    font-size: 0.68rem;
+}
+
+/* ─── Provider Grid ──────────────────────────────── */
+.provider-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+}
+
+.provider-pill {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 10px 6px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.015);
+    transition: all 0.2s ease;
+}
+
+.provider-pill:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(168, 85, 247, 0.15);
+    transform: translateY(-1px);
+}
+
+.prov-name {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: capitalize;
+}
+
+.prov-count {
+    font-size: 1rem;
+    font-weight: 800;
+    color: #f1f1f6;
+    font-variant-numeric: tabular-nums;
+}
+
+.prov-pct {
+    font-size: 0.6rem;
+    color: #4b5563;
+}
+
+/* ─── Tool Grid ──────────────────────────────────── */
+.tool-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.tool-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: rgba(255, 255, 255, 0.015);
+    transition: all 0.2s ease;
+}
+
+.tool-item:hover {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(168, 85, 247, 0.15);
+}
+
+.tool-icon {
+    font-size: 1rem;
+}
+
+.tool-name {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #d1d5db;
+}
+
+.tool-count {
+    font-size: 0.65rem;
+    color: #6b7280;
+}

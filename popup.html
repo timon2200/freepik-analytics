@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Freepik Analytics</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+    <div class="popup">
+        <div class="popup-header">
+            <span class="logo">⚡</span>
+            <span class="title">Freepik Analytics</span>
+        </div>
+
+        <div id="stats" class="stats">
+            <div class="stat-row">
+                <span class="stat-label">Total Generations</span>
+                <span class="stat-value purple" id="pop-total">—</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Images</span>
+                <span class="stat-value cyan" id="pop-images">—</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Videos</span>
+                <span class="stat-value rose" id="pop-videos">—</span>
+            </div>
+            <div class="stat-divider"></div>
+            <div class="stat-row">
+                <span class="stat-label">AI Models Used</span>
+                <span class="stat-value" id="pop-models">—</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">Projects</span>
+                <span class="stat-value" id="pop-projects">—</span>
+            </div>
+        </div>
+
+        <div id="no-data" class="no-data" style="display: none;">
+            <div class="no-data-icon">📊</div>
+            <div class="no-data-text">No data yet</div>
+            <div class="no-data-hint">Open any Freepik page and click the analytics toggle to start collecting data.
+            </div>
+        </div>
+
+        <div class="popup-footer">
+            <div class="last-updated" id="pop-updated"></div>
+            <button id="pop-open" class="open-btn">Open Dashboard →</button>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
+</body>
+
+</html>
