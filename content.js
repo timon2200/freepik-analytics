@@ -25,6 +25,17 @@
     let slotSoundEnabled = false;
     const SLOT_STORAGE_KEY = 'freepikSlotSoundEnabled';
 
+    // Image Board State
+    const BOARD_STORAGE_KEY = 'freepikImageBoardData';
+    let boardRoot = null;
+    let boardShadowRoot = null;
+    let isBoardOpen = false;
+    let draggedImageUrl = null;
+    let draggedBoardItemOffset = null; // Track exact grab point for internal item dragging
+    let canvasZoom = 1.0; // Track current zoom level
+
+    let imageBoardData = [];
+
     // ─── Create Toggle Button ─────────────────────────
     function createToggleButton() {
         const btn = document.createElement('div');
@@ -953,11 +964,665 @@
         }
     }
 
+    // ─── Image Board Feature ──────────────────────────
+    function initImageBoard() {
+        const trigger = document.createElement('div');
+        trigger.id = 'fpk-board-trigger';
+        trigger.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline><path d="M9 15h6"></path><path d="M9 11h6"></path></svg>`;
+        Object.assign(trigger.style, {
+            position: 'fixed',
+            right: '0',
+            top: '40%',
+            transform: 'translateY(-50%)',
+            zIndex: '2147483646',
+            width: '40px',
+            height: '40px',
+            background: 'linear-gradient(135deg, #10b981, #06b6d4)',
+            borderRadius: '8px 0 0 8px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            color: '#fff',
+            boxShadow: '0 4px 20px rgba(16, 185, 129, 0.4)',
+            transition: 'all 0.3s ease',
+        });
+
+        trigger.addEventListener('mouseenter', () => openBoard());
+        trigger.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            openBoard();
+        });
+        document.body.appendChild(trigger);
+
+        boardRoot = document.createElement('div');
+        boardRoot.id = 'fpk-image-board-container';
+        Object.assign(boardRoot.style, {
+            position: 'fixed',
+            top: '0',
+            right: '0',
+            width: '440px', // Default width
+            height: '100vh',
+            zIndex: '2147483647',
+            transform: 'translateX(100%)',
+            transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+            overflow: 'hidden',
+        });
+
+        // Restore saved width if any
+        chrome.storage.local.get(['fpkBoardWidth'], (res) => {
+            if (res.fpkBoardWidth) boardRoot.style.width = res.fpkBoardWidth + 'px';
+        });
+
+        boardShadowRoot = boardRoot.attachShadow({ mode: 'open' });
+
+        const style = document.createElement('style');
+        style.textContent = `
+            .board-panel { width: 100%; height: 100vh; background: #0a0a10; border-left: 1px solid rgba(255, 255, 255, 0.06); display: flex; flex-direction: column; font-family: 'Inter', -apple-system, sans-serif; color: #f1f1f6; box-shadow: -8px 0 40px rgba(0, 0, 0, 0.5); }
+            .board-header { padding: 16px; border-bottom: 1px solid rgba(255,255,255,0.06); background: rgba(13,13,20,0.95); display: flex; justify-content: space-between; align-items: center; }
+            .board-title { font-size: 1rem; font-weight: 700; background: linear-gradient(135deg, #10b981, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+            .board-close { background: none; border: none; color: #9ca3af; cursor: pointer; padding: 4px; display: flex; align-items: center; justify-content: center; }
+            .board-close:hover { color: #fff; }
+            .drawer-resizer { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: ew-resize; z-index: 99999; }
+            .drawer-resizer:hover { background: rgba(16, 185, 129, 0.2); }
+            .board-content { flex: 1; overflow: auto; background: rgba(10,10,16,0.95); position: relative; }
+            .board-content::-webkit-scrollbar { width: 8px; height: 8px; }
+            .board-content::-webkit-scrollbar-track { background: transparent; }
+            .board-content::-webkit-scrollbar-thumb { background: rgba(16, 185, 129, 0.3); border-radius: 10px; }
+            .drop-zone { position: absolute; top: 16px; left: 16px; right: 16px; z-index: 10000; pointer-events: none; border: 2px dashed rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 30px 20px; text-align: center; color: #9ca3af; transition: opacity 0.2s; opacity: 0; background: rgba(10,10,16,0.9); }
+            .drop-zone.drag-over { opacity: 1; border-color: #10b981; color: #10b981; }
+            .board-canvas { position: absolute; width: 10000px; height: 10000px; background-image: radial-gradient(rgba(255,255,255,0.15) 1px, transparent 1px); background-size: 30px 30px; cursor: grab; }
+            .board-canvas.panning { cursor: grabbing; }
+            .board-item { position: absolute; border-radius: 8px; overflow: hidden; background: #1a1a24; border: 1px solid rgba(255,255,255,0.03); box-shadow: 0 4px 12px rgba(0,0,0,0.3); transition: box-shadow 0.2s; user-select: none; }
+            .board-item.dragging { box-shadow: 0 12px 24px rgba(0,0,0,0.5); z-index: 9999 !important; border-color: rgba(16, 185, 129, 0.5); }
+            .board-item img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; display: block; }
+            .board-item .delete-btn { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,0.6); border: none; color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: opacity 0.2s; padding: 0; z-index: 10; }
+            .board-item:hover .delete-btn { opacity: 1; }
+            .board-item .delete-btn:hover { background: #ef4444; }
+            .resize-handle { position: absolute; bottom: 0; right: 0; width: 20px; height: 20px; cursor: nwse-resize; z-index: 10; opacity: 0; transition: opacity 0.2s; }
+            .resize-handle::after { content: ''; position: absolute; right: 4px; bottom: 4px; width: 8px; height: 8px; border-right: 2px solid rgba(255,255,255,0.5); border-bottom: 2px solid rgba(255,255,255,0.5); }
+            .board-item:hover .resize-handle { opacity: 1; }
+            .zoom-controls { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); display: flex; gap: 8px; background: rgba(20,20,30,0.9); padding: 6px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); z-index: 10001; border: 1px solid rgba(255,255,255,0.1); }
+            .zoom-btn { background: none; border: none; color: #fff; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; }
+            .zoom-btn:hover { background: rgba(255,255,255,0.1); }
+            .zoom-level { color: #fff; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; min-width: 44px; user-select: none; }
+            .edge-glow { position: absolute; z-index: 10000; pointer-events: none; opacity: 0; transition: opacity 0.2s; }
+            .edge-glow.left { top: 0; bottom: 0; left: 0; width: 60px; background: linear-gradient(to right, rgba(16,185,129,0.15), transparent); }
+            .edge-glow.right { top: 0; bottom: 0; right: 0; width: 60px; background: linear-gradient(to left, rgba(16,185,129,0.15), transparent); }
+            .edge-glow.top { top: 0; left: 0; right: 0; height: 60px; background: linear-gradient(to bottom, rgba(16,185,129,0.15), transparent); }
+            .edge-glow.bottom { bottom: 0; left: 0; right: 0; height: 60px; background: linear-gradient(to top, rgba(16,185,129,0.15), transparent); }
+            .edge-glow.active { opacity: 1; }
+        `;
+        boardShadowRoot.appendChild(style);
+
+        const panel = document.createElement('div');
+        panel.className = 'board-panel';
+        panel.innerHTML = `
+            <div class="drawer-resizer"></div>
+            <div class="board-header">
+                <div class="board-title">🖼️  Image Board</div>
+                <button class="board-close">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+            </div>
+            <div class="board-content">
+                <div class="board-canvas" id="board-canvas"></div>
+                <div class="drop-zone" id="board-drop-zone">
+                    Drop images to add to canvas
+                </div>
+                <div class="edge-glow top"></div>
+                <div class="edge-glow right"></div>
+                <div class="edge-glow bottom"></div>
+                <div class="edge-glow left"></div>
+                <div class="zoom-controls">
+                    <button class="zoom-btn zoom-out">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                    <div class="zoom-level">100%</div>
+                    <button class="zoom-btn zoom-in">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </button>
+                    <button class="zoom-btn zoom-reset" title="Reset Zoom">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                    </button>
+                </div>
+            </div>
+        `;
+        boardShadowRoot.appendChild(panel);
+        document.body.appendChild(boardRoot);
+
+        chrome.storage.local.get([BOARD_STORAGE_KEY], (res) => {
+            imageBoardData = res[BOARD_STORAGE_KEY] || [];
+            renderBoardImages();
+        });
+
+        boardShadowRoot.querySelector('.board-close').addEventListener('click', closeBoard);
+
+        // Drawer Resizer Logic
+        const resizer = boardShadowRoot.querySelector('.drawer-resizer');
+        let isResizingDrawer = false;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizingDrawer = true;
+            // Temporarily disable transition during drag for fluid resizing
+            boardRoot.style.transition = 'none';
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizingDrawer) return;
+            const newWidth = window.innerWidth - e.clientX;
+            // constraints
+            if (newWidth > 320 && newWidth < window.innerWidth * 0.9) {
+                boardRoot.style.width = newWidth + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isResizingDrawer) {
+                isResizingDrawer = false;
+                // Restore transition
+                boardRoot.style.transition = 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+                // Save new width
+                chrome.storage.local.set({ fpkBoardWidth: parseInt(boardRoot.style.width, 10) });
+            }
+        });
+
+        boardRoot.addEventListener('mouseleave', () => {
+            if (!draggedImageUrl && !isResizingDrawer) closeBoard();
+        });
+
+        let leaveTimeout;
+        document.addEventListener('mousemove', (e) => {
+            if (isBoardOpen && !draggedImageUrl) {
+                if (e.clientX < window.innerWidth - 460) {
+                    if (!leaveTimeout) leaveTimeout = setTimeout(() => closeBoard(), 300);
+                } else {
+                    clearTimeout(leaveTimeout);
+                    leaveTimeout = null;
+                }
+            }
+        });
+
+        const dropZone = boardShadowRoot.querySelector('#board-drop-zone');
+        const contentArea = boardShadowRoot.querySelector('.board-content');
+        const panCanvas = boardShadowRoot.querySelector('#board-canvas');
+
+        // Zoom Logic
+        const zoomLevelEl = boardShadowRoot.querySelector('.zoom-level');
+        const updateZoom = (newZoom) => {
+            canvasZoom = Math.min(Math.max(newZoom, 0.2), 3.0); // Limit 20% to 300%
+            zoomLevelEl.textContent = Math.round(canvasZoom * 100) + '%';
+            panCanvas.style.zoom = canvasZoom;
+        };
+
+        boardShadowRoot.querySelector('.zoom-in').addEventListener('click', () => updateZoom(canvasZoom + 0.1));
+        boardShadowRoot.querySelector('.zoom-out').addEventListener('click', () => updateZoom(canvasZoom - 0.1));
+        boardShadowRoot.querySelector('.zoom-reset').addEventListener('click', () => updateZoom(1.0));
+
+        contentArea.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                updateZoom(canvasZoom + delta);
+            }
+        });
+
+        // Panning Logic
+        let isPanning = false;
+        let startPanX, startPanY, startScrollLeft, startScrollTop;
+
+        panCanvas.addEventListener('mousedown', (e) => {
+            // Only pan on middle click OR if clicking directly on the canvas background
+            if (e.target.id === 'board-canvas' || e.button === 1) {
+                isPanning = true;
+                startPanX = e.clientX;
+                startPanY = e.clientY;
+                startScrollLeft = contentArea.scrollLeft;
+                startScrollTop = contentArea.scrollTop;
+                panCanvas.classList.add('panning');
+                e.preventDefault(); // Prevent text selection
+            }
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isPanning) {
+                const dx = e.clientX - startPanX;
+                const dy = e.clientY - startPanY;
+                contentArea.scrollLeft = startScrollLeft - dx;
+                contentArea.scrollTop = startScrollTop - dy;
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (isPanning) {
+                isPanning = false;
+                panCanvas.classList.remove('panning');
+            }
+        });
+
+        // Edge Auto-Scrolling Logic
+        let autoScrollScrollDirX = 0;
+        let autoScrollScrollDirY = 0;
+        let autoScrollAnimationFrame = null;
+
+        const glowTop = boardShadowRoot.querySelector('.edge-glow.top');
+        const glowBottom = boardShadowRoot.querySelector('.edge-glow.bottom');
+        const glowLeft = boardShadowRoot.querySelector('.edge-glow.left');
+        const glowRight = boardShadowRoot.querySelector('.edge-glow.right');
+
+        function updateEdgeScrolling(clientX, clientY) {
+            const rect = contentArea.getBoundingClientRect();
+            const threshold = 60; // distance from edge to trigger scroll
+
+            // Only trigger if mouse is inside the board panel X bounds
+            if (clientX < rect.left || clientX > rect.right) {
+                stopEdgeScrolling();
+                return;
+            }
+
+            let scX = 0, scY = 0;
+
+            // Y checks
+            if (clientY < rect.top + threshold && clientY >= rect.top) { scY = -1; glowTop.classList.add('active'); }
+            else { glowTop.classList.remove('active'); }
+
+            if (clientY > rect.bottom - threshold && clientY <= rect.bottom) { scY = 1; glowBottom.classList.add('active'); }
+            else { glowBottom.classList.remove('active'); }
+
+            // X checks
+            if (clientX < rect.left + threshold && clientX >= rect.left) { scX = -1; glowLeft.classList.add('active'); }
+            else { glowLeft.classList.remove('active'); }
+
+            if (clientX > rect.right - threshold && clientX <= rect.right) { scX = 1; glowRight.classList.add('active'); }
+            else { glowRight.classList.remove('active'); }
+
+            if (scX !== 0 || scY !== 0) {
+                autoScrollScrollDirX = scX;
+                autoScrollScrollDirY = scY;
+                if (!autoScrollAnimationFrame) requestAnimationFrame(performEdgeScroll);
+            } else {
+                autoScrollScrollDirX = 0;
+                autoScrollScrollDirY = 0;
+            }
+        }
+
+        function performEdgeScroll() {
+            if (autoScrollScrollDirX === 0 && autoScrollScrollDirY === 0) {
+                autoScrollAnimationFrame = null;
+                return;
+            }
+            contentArea.scrollBy({ left: autoScrollScrollDirX * 15, top: autoScrollScrollDirY * 15 });
+            autoScrollAnimationFrame = requestAnimationFrame(performEdgeScroll);
+        }
+
+        function stopEdgeScrolling() {
+            autoScrollScrollDirX = 0;
+            autoScrollScrollDirY = 0;
+            glowTop.classList.remove('active');
+            glowBottom.classList.remove('active');
+            glowLeft.classList.remove('active');
+            glowRight.classList.remove('active');
+        }
+
+        boardRoot.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add('drag-over');
+            updateEdgeScrolling(e.clientX, e.clientY);
+        });
+
+        const hideDropZone = () => {
+            dropZone.classList.remove('drag-over');
+            stopEdgeScrolling();
+        };
+        boardRoot.addEventListener('dragleave', hideDropZone);
+        boardRoot.addEventListener('dragend', hideDropZone);
+
+        boardRoot.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            hideDropZone();
+
+            // Calculate drop position relative to the canvas
+            const canvas = boardShadowRoot.querySelector('#board-canvas');
+            const rect = canvas.getBoundingClientRect();
+
+            // The drop coordinates inside the infinite canvas
+            // e.clientX is relative to viewport. rect.left is the canvas's current viewport X.
+            // Under `zoom`, rect values are pre-scaled, but CSS pixels internally are unscaled.
+            // Dividing the viewport delta by canvasZoom converts it to native canvas coordinates.
+            let dropX = (e.clientX - rect.left) / canvasZoom;
+            let dropY = (e.clientY - rect.top) / canvasZoom;
+
+            if (draggedBoardItemOffset) {
+                // Preserved precise grab coordinate, also divide offset by zoom
+                dropX -= (draggedBoardItemOffset.x / canvasZoom);
+                dropY -= (draggedBoardItemOffset.y / canvasZoom);
+                draggedBoardItemOffset = null;
+            } else {
+                // Offset by half the default image width (180/2 = 90)
+                dropX -= 90;
+                dropY -= 90;
+            }
+
+            // Constrain to canvas bounds
+            if (dropX < 0) dropX = 0;
+            if (dropY < 0) dropY = 0;
+
+            if (draggedImageUrl) {
+                saveImageToBoard(draggedImageUrl, dropX, dropY);
+                draggedImageUrl = null;
+            } else {
+                const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+                if (url && (url.startsWith('http') || url.startsWith('data:image'))) {
+                    saveImageToBoard(url, dropX, dropY);
+                }
+            }
+        });
+
+        document.addEventListener('dragstart', (e) => {
+            const img = e.target;
+            if (img.tagName === 'IMG' && img.src) {
+                const feedItem = img.closest('div[data-cy="image-creation-feed-item"]');
+                if (feedItem || img.classList.contains('object-cover')) {
+                    // Force the high-res variation by replacing preview query params
+                    let highResUrl = img.src.replace('preview=true', 'preview=false');
+                    draggedImageUrl = highResUrl;
+                    try { e.dataTransfer.setData('text/plain', highResUrl); } catch (err) { }
+                }
+            }
+        });
+
+        document.addEventListener('dragend', () => {
+            draggedImageUrl = null;
+            setTimeout(() => { if (isBoardOpen) closeBoard(); }, 500);
+        });
+    }
+
+    function openBoard() {
+        if (!isBoardOpen) {
+            isBoardOpen = true;
+            if (boardRoot) boardRoot.style.transform = 'translateX(0)';
+
+            // Scroll to center content
+            setTimeout(() => {
+                const content = boardShadowRoot.querySelector('.board-content');
+                if (content && imageBoardData.length > 0) {
+                    // Find bounds to perfectly center on existing items
+                    let minX = 10000, minY = 10000;
+                    imageBoardData.forEach(d => {
+                        if (d.x < minX) minX = d.x;
+                        if (d.y < minY) minY = d.y;
+                    });
+
+                    // Center the viewport over the top-left-most item (with padding)
+                    // If no scrolling has happened yet (0), jump to items
+                    if (content.scrollLeft === 0 && content.scrollTop === 0) {
+                        content.scrollLeft = Math.max(0, minX - 100);
+                        content.scrollTop = Math.max(0, minY - 100);
+                    }
+                } else if (content && content.scrollLeft === 0) {
+                    // Center of canvas if completely empty
+                    content.scrollLeft = 4800;
+                    content.scrollTop = 4800;
+                }
+            }, 300); // Wait for open transition to finish before measuring fully
+        }
+    }
+
+    function closeBoard() {
+        if (isBoardOpen) {
+            isBoardOpen = false;
+            if (boardRoot) boardRoot.style.transform = 'translateX(100%)';
+        }
+    }
+
+    function saveImageToBoard(url, x = 20, y = 20) {
+        // Find max zIndex to bring to front
+        let maxZ = 0;
+        imageBoardData.forEach(item => {
+            const z = (typeof item === 'object' && item.zIndex) ? item.zIndex : 0;
+            if (z > maxZ) maxZ = z;
+        });
+
+        // Handle legacy data / duplicates
+        const existingIdx = imageBoardData.findIndex(item => {
+            if (typeof item === 'string') return item === url;
+            return item.url === url;
+        });
+
+        if (existingIdx === -1) {
+            imageBoardData.push({
+                url: url,
+                x: x,
+                y: y, // dropY already accounts for scrollTop via getBoundingClientRect delta
+                width: 180, // Default width
+                zIndex: maxZ + 1
+            });
+            chrome.storage.local.set({ [BOARD_STORAGE_KEY]: imageBoardData });
+            renderBoardImages();
+        } else {
+            // If it already exists, just bring it to front and maybe move it
+            const item = imageBoardData[existingIdx];
+            if (typeof item === 'object') {
+                item.x = x;
+                item.y = y;
+                item.zIndex = maxZ + 1;
+                chrome.storage.local.set({ [BOARD_STORAGE_KEY]: imageBoardData });
+                renderBoardImages();
+            }
+        }
+    }
+
+    function removeImageFromBoard(index) {
+        imageBoardData.splice(index, 1);
+        chrome.storage.local.set({ [BOARD_STORAGE_KEY]: imageBoardData });
+        renderBoardImages();
+    }
+
+    function renderBoardImages() {
+        if (!boardShadowRoot) return;
+        const canvas = boardShadowRoot.querySelector('#board-canvas');
+        if (!canvas) return;
+        canvas.innerHTML = '';
+
+        // Migrate legacy simple string URLs to objects if needed
+        let needsMigration = false;
+        imageBoardData = imageBoardData.map((item, i) => {
+            if (typeof item === 'string') {
+                needsMigration = true;
+                return { url: item, x: 5000 + (i % 2) * 200 + 10, y: 5000 + Math.floor(i / 2) * 200 + 10, width: 180, zIndex: i };
+            }
+            return item;
+        });
+
+        // Ensure all existing items are shifted into the infinite space (not stuck at 0,0)
+        let minX = 10000, minY = 10000;
+        imageBoardData.forEach(item => {
+            if (item.x < minX) minX = item.x;
+            if (item.y < minY) minY = item.y;
+        });
+
+        // If items are trapped at top left (x < 1000), shift them to the center of 10000x10000 canvas
+        if (imageBoardData.length > 0 && (minX < 1000 || minY < 1000)) {
+            needsMigration = true;
+            const shiftX = Math.max(0, 5000 - minX);
+            const shiftY = Math.max(0, 5000 - minY);
+            imageBoardData.forEach(item => {
+                item.x += shiftX;
+                item.y += shiftY;
+            });
+        }
+
+        if (needsMigration) {
+            chrome.storage.local.set({ [BOARD_STORAGE_KEY]: imageBoardData });
+        }
+
+        imageBoardData.forEach((item, i) => {
+            const el = document.createElement('div');
+            el.className = 'board-item';
+
+            // Set position and size
+            el.style.left = `${item.x}px`;
+            el.style.top = `${item.y}px`;
+            el.style.width = `${item.width}px`;
+            el.style.zIndex = item.zIndex || i;
+
+            el.innerHTML = `
+                <img src="${item.url}" loading="lazy" />
+                <button class="delete-btn" title="Remove" data-index="${i}">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+                </button>
+                <div class="resize-handle"></div>
+            `;
+
+            el.querySelector('.delete-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                removeImageFromBoard(i);
+            });
+
+            const img = el.querySelector('img');
+
+            el.addEventListener('mousedown', (e) => {
+                // If clicking delete btn or resize handle, ignore
+                if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
+
+                // Allow left click only for dragging
+                if (e.button !== 0) return;
+
+                // Bring to front
+                let maxZ = 0;
+                imageBoardData.forEach(d => { if (d.zIndex > maxZ) maxZ = d.zIndex || 0; });
+                item.zIndex = maxZ + 1;
+                el.style.zIndex = item.zIndex;
+            });
+
+            // Custom Resize Logic
+            const resizeHandle = el.querySelector('.resize-handle');
+            resizeHandle.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+
+                if (e.button !== 0) return;
+
+                let isResizing = true;
+                let startX = e.clientX;
+                let startWidth = item.width;
+
+                // Using maxZ to bring to front while resizing too
+                let maxZ = 0;
+                imageBoardData.forEach(d => { if (d.zIndex > maxZ) maxZ = d.zIndex || 0; });
+                item.zIndex = maxZ + 1;
+                el.style.zIndex = item.zIndex;
+
+                el.classList.add('dragging'); // Gives visual feedback
+
+                const onResizeMove = (moveEvent) => {
+                    if (!isResizing) return;
+                    const dx = moveEvent.clientX - startX;
+                    let newWidth = startWidth + dx;
+
+                    // Min width constraint
+                    if (newWidth < 60) newWidth = 60;
+                    // Note: We don't limit max width, user can resize as large as they want
+
+                    el.style.width = `${newWidth}px`;
+                };
+
+                const onResizeUp = (upEvent) => {
+                    if (isResizing) {
+                        isResizing = false;
+                        el.classList.remove('dragging');
+
+                        item.width = parseInt(el.style.width, 10);
+                        chrome.storage.local.set({ [BOARD_STORAGE_KEY]: imageBoardData });
+                    }
+
+                    document.removeEventListener('mousemove', onResizeMove);
+                    document.removeEventListener('mouseup', onResizeUp);
+                };
+
+                document.addEventListener('mousemove', onResizeMove);
+                document.addEventListener('mouseup', onResizeUp);
+            });
+
+            // Add native dragstart for dragging out of the board back to host page OR internal dragging
+            el.addEventListener('dragstart', (e) => {
+                // If they are resizing, don't trigger native drag
+                if (e.target.closest('.resize-handle')) return e.preventDefault();
+
+                // Store precise offset of where user clicked on the image to eliminate jitter on drop
+                const elRect = el.getBoundingClientRect();
+                draggedBoardItemOffset = {
+                    x: e.clientX - elRect.left,
+                    y: e.clientY - elRect.top
+                };
+
+                // WORKAROUND: Chrome Native Drag Ghost Offset Bug
+                // Chrome's drag rendering calculates ghost offsets incorrectly when
+                // elements are inside `overflow: scroll` or `zoom` containers.
+                // We manually enforce the ghost image origin mapping using unscaled CSS pixels.
+                try {
+                    const ghostX = draggedBoardItemOffset.x / canvasZoom;
+                    const ghostY = draggedBoardItemOffset.y / canvasZoom;
+                    e.dataTransfer.setDragImage(el, ghostX, ghostY);
+                } catch (err) { }
+
+                e.dataTransfer.effectAllowed = 'copyMove';
+
+                // Extract Freepik Image ID and Identifier from URL if possible
+                let imageId = 0;
+                let identifier = "customUrl";
+                try {
+                    const match = item.url.match(/\/production\/(\d+)\//);
+                    if (match && match[1]) {
+                        imageId = parseInt(match[1], 10);
+                        identifier = match[1];
+                    }
+                } catch (err) { }
+
+                try {
+                    e.dataTransfer.setData('text/plain', item.url);
+                    e.dataTransfer.setData('text/uri-list', item.url);
+                    e.dataTransfer.setData('text/html', `<img src="${item.url}" />`);
+
+                    if (imageId) {
+                        const pikasoData = {
+                            id: imageId,
+                            identifier: identifier,
+                            url: item.url,
+                            name: "pikaso-image",
+                            tool: "text-to-image",
+                            type: "image"
+                        };
+                        e.dataTransfer.setData('application/pikaso-image-data', JSON.stringify(pikasoData));
+
+                        const jsonData = {
+                            type: "mixed",
+                            files: [imageId],
+                            folders: [],
+                            fileType: "file"
+                        };
+                        e.dataTransfer.setData('application/json', JSON.stringify(jsonData));
+                        e.dataTransfer.setData('application/pikaso-internal', "true");
+                    }
+                } catch (err) { }
+            });
+
+            // Note: To enable dragging native elements internally and out, 
+            // we must enable draggable on the container itself.
+            el.draggable = true;
+
+            canvas.appendChild(el);
+        });
+    }
+
     function init() {
         createToggleButton();
         createDashboardContainer();
         initSlotMachineSound();
         bindSlotToggle();
+        initImageBoard();
     }
 
 })();
