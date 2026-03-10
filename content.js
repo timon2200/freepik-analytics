@@ -195,7 +195,7 @@
             const lastPage = firstData.meta.pagination.last_page;
 
             const allItems = [];
-            processPage(firstData.data, allItems);
+            processPage(firstData.data, allItems, limitsMap);
 
             // Show dashboard immediately with first page of data
             let summary = aggregateData(allItems, apiTotal, walletData, limitsMap);
@@ -209,7 +209,7 @@
                     if (res.ok) {
                         const pageData = await res.json();
                         if (pageData?.data && Array.isArray(pageData.data)) {
-                            processPage(pageData.data, allItems);
+                            processPage(pageData.data, allItems, limitsMap);
                         }
                     } else if (res.status === 429) {
                         // Rate limited — wait longer and retry
@@ -247,7 +247,7 @@
     }
 
     // ─── Process a page of items ──────────────────────
-    function processPage(items, allItems) {
+    function processPage(items, allItems, limitsMap) {
         items.forEach(item => {
             const meta = item.creation?.metadata || {};
             let model = '', provider = '';
@@ -260,6 +260,85 @@
                 provider = meta.provider || '';
             }
 
+            // Calculate actual credit cost using multiple strategies
+            // IMPORTANT: unlimited plan items cost 0 — skip all calculation
+            let creditsCost = 0;
+            const featureName = meta.featureName || '';
+            const isVideo = item.tool_file_type === 'video';
+            const multiplier = isVideo ? (meta.multiplier || meta.duration || 1) : 1;
+
+            if (meta.unlimited !== true && limitsMap) {
+                let limitEntry = null;
+
+                // Strategy 1: featureName lookup (mostly videos have this)
+                if (featureName) {
+                    let limitsKey = featureName.replace(/^pikaso-/, '');
+                    limitEntry = limitsMap[limitsKey];
+
+                    // Fix video- vs video-generator- prefix mismatch
+                    if (!limitEntry && limitsKey.startsWith('video-') && !limitsKey.startsWith('video-generator-')) {
+                        limitsKey = limitsKey.replace(/^video-/, 'video-generator-');
+                        limitEntry = limitsMap[limitsKey];
+                    }
+                }
+
+                // Strategy 2: Build limits key from tool_name + model (exact candidates only)
+                if (!limitEntry) {
+                    const modelKey = (meta.mode || meta.service || meta.model || '').toLowerCase();
+                    if (modelKey) {
+                        const candidates = isVideo
+                            ? [`video-generator-${modelKey}`, `video-generator-ai_video_generator-${modelKey}`]
+                            : [`text-to-image-${modelKey}`, `text-to-image-imagen-${modelKey}`, `${item.tool_name}-${modelKey}`];
+
+                        for (const candidate of candidates) {
+                            if (limitsMap[candidate]) {
+                                limitEntry = limitsMap[candidate];
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (limitEntry) {
+                    creditsCost = (limitEntry.cost || 0) * multiplier;
+                }
+            }
+
+            // Strategy 3: Fallback table for models missing from the limits API
+            if (creditsCost === 0 && meta.unlimited !== true) {
+                const fallbackCosts = {
+                    // Per-second video costs (multiply by duration)
+                    'kling_3_0_pro': 90, 'kling_3_0_std': 60,
+                    'kling_2_5_pro': 80,
+                    // Seedance variants (per-second)
+                    'seedance_pro_1_5_1080p': 50, 'seedance_pro_1080p': 50,
+                    'seedance_pro_720p': 40, 'seedance': 50,
+                };
+                // Extract model identifier from featureName or model field
+                const modelId = featureName
+                    ? featureName.replace(/^pikaso-video-ai_video_generator-/, '').replace(/-/g, '_')
+                    : (meta.model || model || '').replace(/-/g, '_');
+
+                for (const [key, cost] of Object.entries(fallbackCosts)) {
+                    if (modelId.includes(key) || key.includes(modelId)) {
+                        creditsCost = isVideo ? cost * multiplier : cost;
+                        break;
+                    }
+                }
+            }
+
+            // Strategy 4: credits_consumed array (some items list exact deductions)
+            if (creditsCost === 0 && Array.isArray(meta.credits_consumed) && meta.credits_consumed.length > 0) {
+                creditsCost = meta.credits_consumed.reduce((sum, c) => sum + (c.amount || c.credits || 0), 0);
+            }
+
+            // Add sound effects cost if applicable (4 credits per the limits API)
+            if (meta.withSoundEffects && meta.unlimited !== true) {
+                creditsCost += 4;
+            }
+
+            // If unlimited: true and no cost resolved, stays 0 (included in plan)
+
             allItems.push({
                 id: item.id,
                 type: item.tool_file_type || 'unknown',
@@ -269,7 +348,12 @@
                 model,
                 provider,
                 status: item.creation?.status || 'unknown',
-                unlimited: item.creation?.metadata?.unlimited ?? null,
+                unlimited: meta.unlimited ?? null,
+                credits_cost: creditsCost,
+                feature_name: featureName,
+                duration: meta.duration || null,
+                with_sound: meta.withSoundEffects || false,
+                resolution: meta.resolution || null,
             });
         });
     }
@@ -289,7 +373,7 @@
             by_hour: {},
             by_date_hour: {},
             by_month: {},
-            // Credit tracking
+            // Credit tracking (actual from API)
             wallet: walletData ? {
                 credits: walletData.credits || 0,
                 totalCredits: walletData.totalCredits || 0,
@@ -299,12 +383,9 @@
             unlimited_count: 0,
             paid_count: 0,
             unknown_plan_count: 0,
-            estimated_credits_by_model: {},
-            total_estimated_credits: 0,
+            credits_by_model: {},
+            total_credits_used: 0,
         };
-
-        // Build a rough model-to-limits-key mapping
-        const modelCostLookup = buildModelCostLookup(limitsMap);
 
         items.forEach(item => {
             inc(summary.by_type, item.type);
@@ -322,12 +403,12 @@
                 summary.unknown_plan_count++;
             }
 
-            // Estimate credit cost per model
+            // Actual credit cost per model (from rollbackCredits / credits_consumed)
             const modelKey = item.model || 'unknown';
-            const cost = modelCostLookup[modelKey] || 0;
+            const cost = item.credits_cost || 0;
             if (cost > 0) {
-                summary.estimated_credits_by_model[modelKey] = (summary.estimated_credits_by_model[modelKey] || 0) + cost;
-                summary.total_estimated_credits += cost;
+                summary.credits_by_model[modelKey] = (summary.credits_by_model[modelKey] || 0) + cost;
+                summary.total_credits_used += cost;
             }
 
             if (item.created_at) {
@@ -347,42 +428,6 @@
         });
 
         return summary;
-    }
-
-    // ─── Model-to-cost lookup builder ─────────────────
-    function buildModelCostLookup(limitsMap) {
-        // Maps model identifiers from history items to their credit costs
-        // The limits API uses keys like 'text-to-image-fast', but history uses model names like 'imagen-nano-banana-2'
-        const lookup = {};
-        const knownCosts = {
-            // Images
-            'imagen-nano-banana-2': 50, 'imagen-nano-banana-2-flash': 5, 'imagen-nano-banana': 50,
-            'nano-banana-pro': 50, 'seedream-4': 50, 'seedream-4-4k': 100, 'seedream-4-5': 50,
-            'flux-2': 10, 'flux-2-max': 50, 'flux-2-klein': 5,
-            'gpt-1-5-medium': 50, 'gpt-1-5-high': 100,
-            'imagen4-fast': 5, 'imagen4-ultra': 100,
-            'ultra': 100, 'grok': 50, 'qwen': 50, 'auto': 50,
-            'unknown-image': 50,
-            // Videos
-            'kling': 200, 'seedance': 200, 'minimax': 200,
-            'ltx2': 100, 'wan': 200, 'runway-gen4': 500,
-        };
-
-        // Use known costs, override with actual API data where possible
-        Object.assign(lookup, knownCosts);
-
-        // Try to match limits entries to model names
-        if (limitsMap) {
-            Object.entries(limitsMap).forEach(([key, info]) => {
-                // Some heuristic matching
-                if (key.includes('flux-dev')) lookup['flux-2'] = info.cost;
-                if (key.includes('flux-fast')) lookup['flux-2-klein'] = info.cost;
-                if (key.includes('kling-std')) lookup['kling'] = info.cost;
-                if (key.includes('runway')) lookup['runway-gen4'] = info.cost;
-            });
-        }
-
-        return lookup;
     }
 
     function inc(obj, key) {
@@ -519,7 +564,7 @@
 
         <!-- Credits by Model -->
         <div class="chart-card">
-          <div class="chart-title">📊 Estimated Credits by Model</div>
+          <div class="chart-title">💳 Paid Credits by Model <span class="badge" id="fpk-credits-total-badge"></span></div>
           <div id="fpk-credits-model-list" class="model-list"></div>
         </div>
 
@@ -683,10 +728,14 @@
     // ─── Credits by Model List ────────────────────────
     function renderCreditsModelList(data) {
         const container = shadowRoot.querySelector('#fpk-credits-model-list');
-        const entries = Object.entries(data.estimated_credits_by_model || {}).sort((a, b) => b[1] - a[1]);
+        const totalBadge = shadowRoot.querySelector('#fpk-credits-total-badge');
+        const entries = Object.entries(data.credits_by_model || {}).sort((a, b) => b[1] - a[1]);
+
+        const totalCredits = entries.reduce((sum, [, v]) => sum + v, 0);
+        if (totalBadge) totalBadge.textContent = totalCredits > 0 ? `${totalCredits.toLocaleString()} credits` : '';
 
         if (entries.length === 0) {
-            container.innerHTML = '<div style="color:#4b5563;font-size:0.75rem;text-align:center;padding:12px">No credit data available yet</div>';
+            container.innerHTML = '<div style="color:#4b5563;font-size:0.75rem;text-align:center;padding:12px">✅ No paid credits used — all generations on unlimited plan</div>';
             return;
         }
 
