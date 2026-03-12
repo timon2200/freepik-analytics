@@ -33,6 +33,11 @@ A Chrome Extension that intercepts the Freepik API and injects a real-time analy
 - **🤖 AI Model Tracking** — Full breakdown of every AI model you've used with percentages and progress bars.
 - **🏢 Provider Analytics** — See which AI providers power your generations (Google, ByteDance, Kling, etc.)
 - **🛠️ Tool Usage** — Track text-to-image, video generation, uploads, and more.
+- **📉 Accurate Credit Tracking** — Calculates actual generation costs based on API limits rather than simple counts.
+- **🎨 Infinite Image Board** — A Miro-like infinite canvas to drag, drop, and arrange your generated images.
+  - **Fluid Resizing & Zooming**: Resize the drawer dynamically, and use pinch-to-zoom (or Ctrl+Scroll) to navigate your board.
+  - **Edge Auto-Scrolling**: Drag an image to the edge of the screen to auto-pan the canvas with a sleek glowing feedback.
+  - **Native Drag & Drop**: Drag images completely out of the board back into Freepik or other applications.
 - **📁 Project Breakdown** — See generation counts per project.
 - **💾 Smart Caching** — Data cached in `chrome.storage.local` with 1-hour TTL. No re-fetching on every page visit.
 - **👤 Per-Profile Isolation** — Different Chrome profiles = different Freepik accounts = separate data. Works for multiple accounts.
